@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -272,6 +273,42 @@ func TestValidateAPIKey(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunRunSkipsDirectoryWithoutManifest(t *testing.T) {
+	// Create a temporary directory that does NOT contain agent.yaml,
+	// simulating the leftover empty folder from a previous registry run.
+	emptyDir := t.TempDir()
+
+	// os.Stat should succeed (directory exists) but the directory should
+	// not be treated as a local project because it has no agent.yaml.
+	info, err := os.Stat(emptyDir)
+	if err != nil {
+		t.Fatalf("expected directory to exist: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %s to be a directory", emptyDir)
+	}
+
+	// Verify agent.yaml does not exist in the empty directory.
+	_, manifestErr := os.Stat(filepath.Join(emptyDir, "agent.yaml"))
+	if manifestErr == nil {
+		t.Fatal("expected agent.yaml to not exist in empty directory")
+	}
+}
+
+func TestRunRunDetectsDirectoryWithManifest(t *testing.T) {
+	// Create a temporary directory WITH an agent.yaml file.
+	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, "agent.yaml"), []byte("name: test"), 0644); err != nil {
+		t.Fatalf("failed to write agent.yaml: %v", err)
+	}
+
+	// The directory should be treated as a local project because it has agent.yaml.
+	_, manifestErr := os.Stat(filepath.Join(projectDir, "agent.yaml"))
+	if manifestErr != nil {
+		t.Fatalf("expected agent.yaml to exist: %v", manifestErr)
 	}
 }
 

@@ -57,8 +57,13 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 	target := args[0]
 	if info, err := os.Stat(target); err == nil && info.IsDir() {
-		fmt.Println("Running agent from local directory:", target)
-		return runFromDirectory(cmd.Context(), target)
+		// Only treat as a local project if it contains an agent.yaml manifest.
+		// An empty directory (e.g. leftover from a previous registry run) should
+		// fall through to the registry lookup path.
+		if _, manifestErr := os.Stat(filepath.Join(target, "agent.yaml")); manifestErr == nil {
+			fmt.Println("Running agent from local directory:", target)
+			return runFromDirectory(cmd.Context(), target)
+		}
 	}
 
 	agentModel, err := apiClient.GetAgentByName(target)
@@ -319,6 +324,21 @@ func runFromManifest(ctx context.Context, manifest *models.AgentManifest, versio
 			verbose,
 		); err != nil {
 			return fmt.Errorf("failed to materialize skills: %w", err)
+		}
+
+		// Ensure registry runs always use a temporary working directory so that
+		// Docker Compose bind-mount directories are created inside a temp folder
+		// instead of the user's current working directory (fixes #310).
+		if workDir == "" {
+			tmpDir, err := os.MkdirTemp("", "arctl-run-*")
+			if err != nil {
+				return fmt.Errorf("failed to create temporary working directory: %w", err)
+			}
+			workDir = tmpDir
+			cleanupWorkDir = true
+			if verbose {
+				fmt.Printf("[run] Created temporary working directory: %s\n", tmpDir)
+			}
 		}
 
 		if err := project.EnsureOtelCollectorConfig(workDir, manifest, verbose); err != nil {
